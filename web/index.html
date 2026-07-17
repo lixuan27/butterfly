@@ -206,6 +206,7 @@ function onEvent(m) {
     updateStability(m); refreshSide(); stepLoop();
   }
   else if (m.type === 'stepped') {
+    if (m.home_anchor) { currentAnchor = m.home_anchor; anchors = m.anchors; refreshSide(); }
     if (m.mission && m.mission.phase === 'explore') {
       missionBanner(`the tear comes in ${m.mission.tear_in} moves — this walk becomes the world you must defend`);
       if (m.mission.tear_now && !tearSent) { tearSent = true; send({ type: 'mission_tear' }); }
@@ -257,7 +258,7 @@ function onEvent(m) {
   }
   else if (m.type === 'mission_started') {
     playing = true; mission = { phase: 'explore' }; tearSent = false;
-    anchors = m.anchors; currentAnchor = m.anchor;
+    anchors = m.anchors; currentAnchor = null;  // home drops after the first move
     liveQ = []; ghostQ = []; setMode('free');
     voice('you are dreaming. walk — in ' + m.explore_blocks + ' moves, fate will re-roll.');
     missionBanner(`explore · the tear comes in ${m.explore_blocks} moves`);

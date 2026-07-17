@@ -70,6 +70,9 @@ MISSION_TEAR_LINE = -0.25
 @dataclass
 class MissionState:
     phase: str = "explore"            # explore | hold
+    # None until the first step: capturing at t=0 is impossible (the streaming
+    # VAE's conv cache only exists after the first decode — 184937 root cause),
+    # so the home anchor drops lazily after the player's first move.
     anchor_id: Optional[str] = None
     strikes: int = 0
 
@@ -190,6 +193,16 @@ class ButterflyGame:
                 g.latents.append(result.latents.float().cpu())
                 g.actions.append(action)
             msg = {"type": "stepped", "stats": result.stats, **self._status()}
+        if self.mission is not None and self.mission.anchor_id is None \
+                and self.mode == "free":
+            # first move done -> the streaming caches exist -> drop home
+            m, self.mission = self.mission, None    # bypass the mission guard
+            try:
+                a = self.drop_anchor("home")
+            finally:
+                self.mission = m
+            m.anchor_id = a["save_id"]
+            msg["home_anchor"] = a["save_id"]
         if self.mission is not None:
             msg = self._mission_msg(msg)
         return live_u8, ghost_u8, msg
@@ -313,12 +326,10 @@ class ButterflyGame:
         """New dream with an explicit goal: explore, survive the tear, hold."""
         self.mission = None            # clear any stale mission before reset
         self.new_game(image, seed)
-        anchor = self.drop_anchor("home")
-        self.mission = MissionState(anchor_id=anchor["save_id"])
-        return {"type": "mission_started", "anchor": anchor["save_id"],
+        self.mission = MissionState()  # home anchor drops after the first move
+        return {"type": "mission_started", "anchor": None,
                 "explore_blocks": MISSION_EXPLORE_BLOCKS,
-                "strikes_allowed": MISSION_STRIKES,
-                "anchor_bytes": anchor["bytes"], **self._status()}
+                "strikes_allowed": MISSION_STRIKES, **self._status()}
 
     def mission_tear(self, seed: int) -> Dict[str, Any]:
         """Fate re-rolls; the hold phase begins."""
@@ -355,6 +366,8 @@ class ButterflyGame:
     def _mission_msg(self, msg: Dict[str, Any]) -> Dict[str, Any]:
         """Overlay mission progress / verdicts onto the base message stream."""
         m = self.mission
+        if m.anchor_id is None:        # pre-anchor step (shouldn't happen)
+            return msg
         if msg["type"] == "stepped" and m.phase == "explore":
             played = len(self.ghosts[m.anchor_id].actions)
             tear_in = max(0, MISSION_EXPLORE_BLOCKS - played)

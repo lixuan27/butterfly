@@ -102,13 +102,15 @@ def mission_flow():
             ws.send_text(json.dumps({"type": "mission", "image": "0003.png",
                                      "seed": 11}))
             ms = recv_until_json(ws, {"mission_started"})
-            assert ms["explore_blocks"] == 3 and ms["anchor"]
-            tear_seen = False
-            for _ in range(3):
+            assert ms["explore_blocks"] == 3 and ms["anchor"] is None
+            tear_seen = home_seen = False
+            for _ in range(4):        # move 1 drops home, then 3 explore moves
                 ws.send_text(json.dumps(WALK))
                 s = recv_until_json(ws, {"stepped"}, [])
-                if s["mission"]["tear_now"]:
+                home_seen = home_seen or bool(s.get("home_anchor"))
+                if s.get("mission", {}).get("tear_now"):
                     tear_seen = True
+            assert home_seen, "home anchor must drop on the first move"
             assert tear_seen, "explore must end in tear_now"
             ws.send_text(json.dumps({"type": "mission_tear", "seed": 77}))
             tear = recv_until_json(ws, {"mission_tear"})

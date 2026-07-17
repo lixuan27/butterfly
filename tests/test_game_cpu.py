@@ -197,9 +197,14 @@ class MissionTestCase(unittest.TestCase):
     def _explore_and_tear(self):
         ms = self.game.start_mission(None, seed=3)
         self.assertEqual(ms["type"], "mission_started")
-        _, _, s1 = self.game.step(dict(A_W))
-        self.assertEqual(s1["mission"], {"phase": "explore", "tear_in": 1,
+        self.assertIsNone(ms["anchor"])
+        # first move drops the home anchor (streaming caches exist only now)
+        _, _, s0 = self.game.step(dict(A_W))
+        self.assertIn("home_anchor", s0)
+        self.assertEqual(s0["mission"], {"phase": "explore", "tear_in": 2,
                                          "tear_now": False})
+        _, _, s1 = self.game.step(dict(A_W))
+        self.assertEqual(s1["mission"]["tear_in"], 1)
         _, _, s2 = self.game.step(dict(A_W))
         self.assertTrue(s2["mission"]["tear_now"])
         tear = self.game.mission_tear(seed=9)
@@ -240,13 +245,14 @@ class MissionTestCase(unittest.TestCase):
 
     def test_mission_guards_controls(self):
         self.game.start_mission(None, seed=3)
+        self.game.step(dict(A_W))          # home anchor drops here
+        self.assertEqual(len(self.game.anchors), 1)
         for call in (lambda: self.game.drop_anchor("x"),
                      lambda: self.game.rewind(self.game.anchors[0]),
                      lambda: self.game.start_butterfly(self.game.anchors[0])):
             with self.assertRaises(RuntimeError):
                 call()
         # abandoning frees the controls again
-        self.game.step(dict(A_W))
         self.game.abandon_mission()
         self.assertIsNone(self.game.mission)
         self.game.drop_anchor("now allowed")
