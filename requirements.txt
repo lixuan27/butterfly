@@ -1,0 +1,16 @@
+# Butterfly server + bench (PyTorch with CUDA must match your system; >=2.5 tested)
+torch>=2.5
+fastapi
+uvicorn[standard]
+websockets
+numpy
+opencv-python-headless
+safetensors
+einops
+# Matrix-Game-2 host additionally needs (see third_party/Matrix-Game/Matrix-Game-2):
+transformers>=4.40
+diffusers
+accelerate
+imageio
+imageio-ffmpeg
+flash-attn  # optional but strongly recommended for realtime fps

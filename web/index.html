@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Butterfly — play against chaos, inside a dream</title>
+<style>
+  :root {
+    --night:#14121F; --veil:#211D33; --veil-2:#2A2542;
+    --moth:#E8C476; --haze:#A99FD1; --calm:#6FE3C1; --chaos:#FF5C7A;
+    --ink:#EDEAF6;
+    color-scheme: dark;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; height:100vh; display:grid; grid-template-columns:1fr 264px;
+    background:var(--night); color:var(--ink);
+    font:14px/1.5 system-ui, sans-serif;
+  }
+  /* ---------- stage ---------- */
+  #stage { display:flex; flex-direction:column; align-items:center;
+           justify-content:center; gap:14px; padding:18px; min-width:0; }
+  #dream-voice {
+    font:italic 500 17px/1.4 'Iowan Old Style', Georgia, serif;
+    color:var(--haze); letter-spacing:.01em; min-height:1.4em; text-align:center;
+  }
+  #worlds { display:flex; align-items:stretch; max-width:100%; }
+  canvas { display:block; background:#000; max-width:100%; }
+  #live-c { border-radius:10px; }
+  #ghost-wrap { display:none; }
+  .duel #ghost-wrap { display:block; }
+  .duel #live-c { border-radius:10px 0 0 10px; }
+  .duel #ghost-c { border-radius:0 10px 10px 0; }
+  .world-tag { font:11px/1 ui-monospace, monospace; color:var(--haze);
+               padding:6px 2px 0; text-align:center; }
+  /* the seam: the one loud thing on this page */
+  #seam { width:0; transition:width .3s; }
+  .duel #seam {
+    width:7px; background:var(--seam-color, var(--calm));
+    box-shadow:0 0 14px 1px var(--seam-color, var(--calm));
+    animation:breathe 2.4s ease-in-out infinite;
+  }
+  @keyframes breathe { 50% { filter:brightness(1.35); } }
+  @media (prefers-reduced-motion: reduce) { .duel #seam { animation:none; } }
+  /* stability + controls */
+  #stability { display:flex; gap:8px; align-items:baseline;
+               font:12px/1 ui-monospace, monospace; color:var(--haze); }
+  #stability b { color:var(--ink); font-weight:600; }
+  #bar { width:220px; height:4px; background:var(--veil-2); border-radius:2px; overflow:hidden; }
+  #bar i { display:block; height:100%; background:var(--moth); border-radius:2px; }
+  #hud { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+  button {
+    background:var(--veil); color:var(--ink); border:1px solid var(--veil-2);
+    border-radius:8px; padding:8px 16px; font:13px system-ui; cursor:pointer;
+  }
+  button:hover { border-color:var(--haze); }
+  button:focus-visible { outline:2px solid var(--moth); outline-offset:2px; }
+  button.gold { border-color:var(--moth); color:var(--moth); }
+  button[disabled] { opacity:.4; cursor:default; }
+  #keys { color:var(--haze); font-size:12px; }
+  #hint { font:12px ui-monospace, monospace; color:var(--moth); min-height:1em; }
+  /* ---------- side ---------- */
+  #side { border-left:1px solid var(--veil-2); padding:16px 14px; overflow-y:auto; }
+  #side h3 { margin:14px 0 8px; font:11px system-ui; text-transform:uppercase;
+             letter-spacing:.12em; color:var(--haze); font-weight:600; }
+  #side h3:first-child { margin-top:0; }
+  .anchor-slot {
+    display:flex; align-items:center; gap:8px; padding:7px 9px; margin:4px 0;
+    border-radius:7px; background:var(--veil); border:1px solid var(--veil-2);
+  }
+  .anchor-slot.current { border-color:var(--moth); }
+  .anchor-slot .dot { width:8px; height:8px; border-radius:50%; background:var(--moth); flex:none; }
+  .anchor-slot.empty .dot { background:var(--veil-2); }
+  .anchor-slot .lbl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis;
+                      white-space:nowrap; font-size:12.5px; }
+  .anchor-slot small { color:var(--haze); font:10px ui-monospace, monospace; }
+  .anchor-slot button { padding:3px 8px; font-size:11px; border-radius:5px; }
+  #tree { font-size:12px; color:var(--haze); }
+  .tnode { padding:2px 0 2px 10px; border-left:1px solid var(--veil-2); margin-left:4px; }
+  .tnode > span { color:var(--ink); }
+  #inspect { font:11px ui-monospace, monospace; color:var(--haze); white-space:pre; overflow-x:auto; }
+  .anchor-slot a.share { color:var(--haze); text-decoration:none; font-size:13px; }
+  .anchor-slot a.share:hover { color:var(--moth); }
+  #relay { display:flex; gap:6px; }
+  #relay input { flex:1; min-width:0; background:var(--night); color:var(--ink);
+                 border:1px solid var(--veil-2); border-radius:6px; padding:5px 7px;
+                 font:11px ui-monospace, monospace; }
+  #relay button { padding:5px 10px; font-size:11px; }
+  /* verdict overlay */
+  #verdict {
+    position:fixed; inset:0; display:none; place-items:center;
+    background:rgba(20,18,31,.86); z-index:9;
+  }
+  #verdict.show { display:grid; }
+  #verdict .card { text-align:center; padding:38px 46px; background:var(--veil);
+                   border:1px solid var(--veil-2); border-radius:14px; }
+  #verdict .grade { font:italic 700 64px 'Iowan Old Style', Georgia, serif; color:var(--moth); }
+  #verdict .said { font:italic 15px Georgia, serif; color:var(--haze); margin-top:8px; }
+  #verdict button { margin-top:20px; }
+  @media (max-width:900px) { body { grid-template-columns:1fr; } #side { display:none; } }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="dream-voice">a dream is waiting. choose to begin.</div>
+  <div id="worlds">
+    <div><canvas id="live-c" width="640" height="352"></canvas>
+         <div class="world-tag" id="live-tag">your world</div></div>
+    <div id="seam"></div>
+    <div id="ghost-wrap"><canvas id="ghost-c" width="640" height="352"></canvas>
+         <div class="world-tag">the original timeline</div></div>
+  </div>
+  <div id="stability"><span>the dream holds for</span><b id="blocks-left">—</b><span>more moves</span><span id="bar"><i style="width:100%"></i></span></div>
+  <div id="hint"></div>
+  <div id="hud">
+    <button class="gold" id="new">Begin a dream</button>
+    <button id="anchor" disabled>⚓ Drop anchor</button>
+    <button id="duel" disabled>⚔ Defend this timeline</button>
+    <button id="bfly" disabled>🦋 One flap</button>
+  </div>
+  <div id="keys">WASD walk &nbsp;·&nbsp; IJKL look &nbsp;·&nbsp; actions land once per world-move (~0.5 s)</div>
+</div>
+<div id="side">
+  <h3>Anchors</h3><div id="slots"></div>
+  <h3>Timeline</h3><div id="tree">—</div>
+  <h3>Inside the save file</h3><div id="inspect">—</div>
+  <h3>Relay a dream</h3>
+  <div id="relay"><input id="imp-path" placeholder="path/to/dream.wsave"><button id="imp-btn">Adopt</button></div>
+</div>
+<div id="verdict"><div class="card">
+  <div class="grade" id="v-grade">S</div>
+  <div id="v-line"></div>
+  <div class="said" id="v-said"></div>
+  <button id="v-close">Keep dreaming</button>
+</div></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const liveCtx = $('live-c').getContext('2d'), ghostCtx = $('ghost-c').getContext('2d');
+let ws, playing = false, mode = 'idle', anchors = [], currentAnchor = null;
+let liveQ = [], ghostQ = [], ghostActions = [], duelBlock = 0;
+let flapped = false, pendingFlap = false;
+
+const held = new Set();
+addEventListener('keydown', e => {
+  if (e.key === ' ' && mode === 'butterfly') {
+    if (!flapped) pendingFlap = true;
+    e.preventDefault();
+  }
+  if (!e.repeat) held.add(e.key.toLowerCase());
+});
+addEventListener('keyup',   e => held.delete(e.key.toLowerCase()));
+function currentAction() {
+  const keys = ['w','a','s','d'].filter(k => held.has(k)).slice(0,1);
+  let mouse = [0,0]; const M = 0.1;
+  if (held.has('i')) mouse[0] += M; if (held.has('k')) mouse[0] -= M;
+  if (held.has('j')) mouse[1] -= M; if (held.has('l')) mouse[1] += M;
+  return { keys, mouse };
+}
+
+function connect() {
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+  ws.binaryType = 'arraybuffer';
+  ws.onmessage = ev => {
+    if (typeof ev.data === 'string') return onEvent(JSON.parse(ev.data));
+    const view = new DataView(ev.data);
+    const stream = view.getUint8(0);
+    const blob = new Blob([ev.data.slice(5)], { type: 'image/jpeg' });
+    createImageBitmap(blob).then(b => (stream === 0 ? liveQ : ghostQ).push(b));
+  };
+  ws.onclose = () => { voice('the connection to the dream was lost — reload.'); playing = false; };
+}
+const send = o => ws && ws.readyState === 1 && ws.send(JSON.stringify(o));
+const voice = t => $('dream-voice').textContent = t;
+
+setInterval(() => {                       // 25 fps playback of both worlds
+  const a = liveQ.shift(); if (a) liveCtx.drawImage(a, 0, 0, 640, 352);
+  const g = ghostQ.shift(); if (g) ghostCtx.drawImage(g, 0, 0, 640, 352);
+}, 40);
+
+function stepLoop() {
+  if (!playing) return;
+  const a = currentAction();
+  if (mode === 'butterfly' && pendingFlap) { a.flap = true; pendingFlap = false; }
+  send({ type: 'action', ...a });
+}
+
+function onEvent(m) {
+  if (m.type === 'error') { voice(m.error); return; }
+  if (m.type === 'started') {
+    playing = true; setMode('free'); voice('you are dreaming. walk.');
+    updateStability(m); refreshSide(); stepLoop();
+  }
+  else if (m.type === 'stepped') { updateStability(m); if (playing) stepLoop(); }
+  else if (m.type === 'anchored') {
+    anchors = m.anchors; currentAnchor = m.save_id;
+    voice(`anchor set — this moment is ${ (m.bytes/1e9).toFixed(1) } GB of world, kept.`);
+    updateStability(m); refreshSide(); stepLoop();
+  }
+  else if (m.type === 'rewound') {
+    setMode('free'); currentAnchor = m.anchor; liveQ = []; ghostQ = [];
+    voice('you are back. it is exactly as you left it.');
+    updateStability(m); refreshSide(); stepLoop();
+  }
+  else if (m.type === 'duel_started') {
+    setMode('duel'); ghostActions = m.ghost_actions; duelBlock = 0;
+    voice('chance has been re-rolled. hold your world together.');
+    seam(1); showHint(); stepLoop();
+  }
+  else if (m.type === 'duel_tick') {
+    duelBlock = m.block; seam(m.similarity); updateStability(m); showHint();
+    if (playing) stepLoop();
+  }
+  else if (m.type === 'duel_end') {
+    setMode('free'); seam(1); $('hint').textContent = '';
+    const pct = Math.round(m.score * 100);
+    $('v-grade').textContent = m.grade;
+    $('v-line').textContent = pct >= 0
+      ? `you held ${pct}% more world than chaos allows.`
+      : `you scattered the world ${-pct}% faster than chaos itself.`;
+    $('v-said').textContent = `mean drift ${m.mean_dist.toFixed(3)} vs baseline ${m.chaos_baseline.toFixed(3)}`;
+    $('verdict').classList.add('show');
+    updateStability(m); refreshSide();
+  }
+  else if (m.type === 'butterfly_started') {
+    setMode('butterfly'); ghostActions = m.ghost_actions; duelBlock = 0;
+    flapped = false; pendingFlap = false;
+    voice('the same fate replays itself. SPACE + a direction — once — and watch the ripple.');
+    seam(1); showHint(); stepLoop();
+  }
+  else if (m.type === 'butterfly_tick') {
+    duelBlock = m.block; seam(m.similarity); updateStability(m);
+    if (m.flapped && !flapped) { flapped = true; voice('the wing has beaten. watch the worlds part.'); }
+    showHint();
+    if (playing) stepLoop();
+  }
+  else if (m.type === 'butterfly_end') {
+    setMode('free'); seam(1); $('hint').textContent = '';
+    $('v-grade').textContent = m.grade;
+    $('v-line').textContent = m.flap_block === null
+      ? 'you never flapped. the world replayed itself, indifferent.'
+      : `your one flap moved the world ${(m.amp * 100).toFixed(0)}% as far as a full re-roll of fate.`;
+    $('v-said').textContent = m.flap_block === null ? ''
+      : `drift ${m.mean_dist.toFixed(3)} vs chaos ${m.chaos_baseline.toFixed(3)} · wing-beat at move ${m.flap_block + 1}`;
+    $('verdict').classList.add('show');
+    updateStability(m); refreshSide();
+  }
+  else if (m.type === 'imported') {
+    anchors = m.anchors; refreshSide();
+    voice(`a relayed dream arrived (${(m.bytes / 1e9).toFixed(1)} GB). return to it when ready.`);
+  }
+  else if (m.type === 'collapsed') {
+    playing = false; setMode('idle');
+    voice('the dream has collapsed. every timeline you kept is still on disk.');
+  }
+  else if (m.type === 'tree') renderTree(m.tree);
+  else if (m.type === 'inspect') {
+    $('inspect').textContent = Object.entries(m.components)
+      .filter(([k]) => !k.startsWith('tensor.vae_cache'))
+      .map(([k, v]) => `${k.replace('cache.','').padEnd(16)}${(v/1e6).toFixed(1).padStart(8)} MB`)
+      .join('\n') + `\nvae conv cache ${ (Object.entries(m.components)
+        .filter(([k]) => k.startsWith('tensor.vae_cache'))
+        .reduce((s, [,v]) => s + v, 0)/1e6).toFixed(0).padStart(7) } MB`;
+  }
+}
+
+function setMode(m) {
+  mode = m;
+  const two = m === 'duel' || m === 'butterfly';
+  $('worlds').parentElement.classList.toggle('duel', two);
+  document.body.classList.toggle('duel', two);
+  $('anchor').disabled = m !== 'free' || anchors.length >= 3;
+  $('duel').disabled = m !== 'free' || !currentAnchor;
+  $('bfly').disabled = m !== 'free' || !currentAnchor;
+}
+function seam(similarity) {
+  const s = Math.max(0, Math.min(1, similarity));
+  const mix = (a, b) => Math.round(a + (b - a) * (1 - s));
+  document.documentElement.style.setProperty('--seam-color',
+    `rgb(${mix(0x6F,0xFF)},${mix(0xE3,0x5C)},${mix(0xC1,0x7A)})`);
+}
+function showHint() {
+  const a = ghostActions[duelBlock];
+  if (!a) return;
+  const k = (a.keys && a.keys[0] || '·').toUpperCase();
+  const look = a.mouse && (a.mouse[1] > 0 ? 'look right' : a.mouse[1] < 0 ? 'look left' : '');
+  const tail = (mode === 'butterfly' && !flapped) ? ' · SPACE = spend your one flap' : '';
+  $('hint').textContent = `the original you: pressed ${k} ${look ? '· ' + look : ''}${tail}`;
+}
+function updateStability(m) {
+  $('blocks-left').textContent = m.blocks_left;
+  $('bar').firstElementChild.style.width = `${(m.blocks_left / 120) * 100}%`;
+  setMode(m.mode === 'duel' ? 'duel' : mode === 'idle' && m.mode === 'free' ? 'free' : m.mode);
+}
+function refreshSide() { send({ type: 'tree' }); send({ type: 'inspect' }); renderSlots(); }
+function renderSlots() {
+  const el = $('slots'); el.innerHTML = '';
+  for (let i = 0; i < 3; i++) {
+    const id = anchors[i];
+    const div = document.createElement('div');
+    div.className = 'anchor-slot' + (id ? (id === currentAnchor ? ' current' : '') : ' empty');
+    if (id) {
+      div.innerHTML = `<span class="dot"></span><span class="lbl">${id.slice(0,6)}</span>` +
+        `<a class="share" href="/export/${id}" download title="download this dream (.wsave)">⇩</a>`;
+      const back = document.createElement('button');
+      back.textContent = 'Return'; back.onclick = () => send({ type: 'rewind', anchor_id: id });
+      div.appendChild(back);
+    } else div.innerHTML = `<span class="dot"></span><span class="lbl">empty slot</span>`;
+    el.appendChild(div);
+  }
+}
+function renderTree(tree) {
+  const build = n => `<div class="tnode"><span>${n.label || n.save_id.slice(0,6)}</span>` +
+    ` <small>move ${Math.floor(n.latent_frame/3)}</small>` +
+    n.children.map(build).join('') + '</div>';
+  $('tree').innerHTML = tree.length ? tree.map(build).join('') : '—';
+}
+
+$('new').onclick = () => { voice('the dream is forming…'); liveQ = []; ghostQ = [];
+  anchors = []; currentAnchor = null; send({ type: 'new', image: '0003.png', seed: Date.now() % 100000 }); };
+$('anchor').onclick = () => send({ type: 'anchor', label: '' });
+$('duel').onclick = () => currentAnchor && send({ type: 'duel', anchor_id: currentAnchor });
+$('bfly').onclick = () => currentAnchor && send({ type: 'butterfly', anchor_id: currentAnchor });
+$('imp-btn').onclick = () => {
+  const p = $('imp-path').value.trim();
+  if (p) { voice('adopting the relayed dream…'); send({ type: 'import', path: p }); }
+};
+$('v-close').onclick = () => { $('verdict').classList.remove('show'); stepLoop(); };
+connect(); renderSlots();
+</script>
+</body>
+</html>

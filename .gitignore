@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+ckpts/
+saves/
+logs/
+third_party/
+*.wsave
+.DS_Store

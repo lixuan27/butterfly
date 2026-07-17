@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Butterfly — a game played inside a neural world model</title>
+<meta name="description" content="The world is a file: save it, rewind it, fork it. Butterfly is a small game played inside a 1.8B neural world model, where chaos is the opponent — and it's measured.">
+<meta property="og:title" content="Butterfly — one save, two futures">
+<meta property="og:description" content="A game played inside a neural world model. Save, rewind and fork a living world; duel a measured chaos.">
+<meta property="og:image" content="https://lixuan27.github.io/butterfly/assets/fork_2up_poster.jpg">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦋</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=IBM+Plex+Mono:wght@400;500&family=Public+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --night:#14121F; --veil:#211D33; --veil-2:#2A2542;
+    --moth:#E8C476; --haze:#A99FD1; --calm:#6FE3C1; --chaos:#FF5C7A;
+    --ink:#EDEAF6; --dim:#8B84A8;
+    color-scheme: dark;
+  }
+  * { box-sizing:border-box; margin:0; }
+  html { scroll-behavior:smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior:auto; } }
+  body {
+    background:var(--night); color:var(--ink);
+    font:300 17px/1.65 'Public Sans', system-ui, sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection { background:var(--moth); color:var(--night); }
+  a { color:var(--moth); text-decoration:none; }
+  a:hover { text-decoration:underline; text-underline-offset:3px; }
+  a:focus-visible, button:focus-visible { outline:2px solid var(--moth); outline-offset:3px; border-radius:2px; }
+
+  .mono { font-family:'IBM Plex Mono', ui-monospace, monospace; }
+  .eyebrow {
+    font:500 11px/1 'IBM Plex Mono', monospace; letter-spacing:.22em;
+    text-transform:uppercase; color:var(--haze);
+  }
+  .voice {
+    font:italic 300 19px/1.5 'Fraunces', Georgia, serif; color:var(--haze);
+    text-align:center; padding:64px 24px 8px;
+  }
+
+  /* ---------- nav ---------- */
+  nav {
+    position:fixed; top:0; left:0; right:0; z-index:10;
+    display:flex; align-items:center; gap:26px; padding:16px 28px;
+    background:linear-gradient(rgba(20,18,31,.92), rgba(20,18,31,0));
+    font:400 13px 'IBM Plex Mono', monospace;
+  }
+  nav .mark { font:italic 600 17px 'Fraunces', serif; color:var(--ink); margin-right:auto; }
+  nav a { color:var(--haze); }
+  nav a:hover { color:var(--moth); text-decoration:none; }
+  @media (max-width:720px) { nav { gap:14px; font-size:11px; } nav .hideS { display:none; } }
+
+  /* ---------- hero ---------- */
+  header {
+    position:relative; min-height:88vh; display:grid; place-items:end center;
+    overflow:hidden; isolation:isolate;
+  }
+  .hero-video { position:absolute; inset:0; z-index:-2; overflow:hidden; }
+  .hero-video video {
+    width:100%; height:100%; object-fit:cover; object-position:50% 100%;
+    transform:scale(1.1); transform-origin:bottom;   /* crops the baked caption bar */
+    filter:saturate(.92);
+  }
+  .hero-shade {
+    position:absolute; inset:0; z-index:-1;
+    background:linear-gradient(rgba(20,18,31,.55) 0%, rgba(20,18,31,.25) 45%, rgba(20,18,31,.96) 100%);
+  }
+  .hero-seam {
+    position:absolute; z-index:0; top:0; bottom:34%; left:50%; width:2px;
+    background:var(--calm); box-shadow:0 0 18px 2px var(--calm);
+    animation:seam-drift 7s ease-in-out infinite;
+  }
+  @keyframes seam-drift {
+    0%,100% { background:var(--calm); box-shadow:0 0 18px 2px var(--calm); opacity:.85; }
+    50%     { background:var(--chaos); box-shadow:0 0 22px 3px var(--chaos); opacity:1; }
+  }
+  @media (prefers-reduced-motion: reduce) { .hero-seam { animation:none; } }
+  .hero-copy { position:relative; text-align:center; padding:0 24px 9vh; max-width:880px; }
+  .hero-copy .eyebrow { color:var(--calm); }
+  h1 {
+    font:italic 420 clamp(46px, 8.5vw, 104px)/1.04 'Fraunces', Georgia, serif;
+    letter-spacing:-.01em; margin:18px 0 22px;
+  }
+  h1 .f2 { color:var(--moth); }
+  .hero-sub { font-size:clamp(16px,1.8vw,19px); color:var(--ink); max-width:640px; margin:0 auto 34px; }
+  .hero-sub b { font-weight:600; }
+  .cta-row { display:flex; gap:14px; justify-content:center; flex-wrap:wrap; }
+  .btn {
+    display:inline-block; padding:13px 26px; border-radius:10px;
+    font:500 14px 'Public Sans', sans-serif; letter-spacing:.02em;
+    border:1px solid var(--veil-2); color:var(--ink); background:rgba(33,29,51,.72);
+    backdrop-filter:blur(6px); transition:border-color .2s, transform .2s;
+  }
+  .btn:hover { border-color:var(--haze); text-decoration:none; transform:translateY(-1px); }
+  .btn.gold { border-color:var(--moth); color:var(--moth); }
+
+  /* ---------- instrument strip ---------- */
+  .instruments {
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+    gap:1px; background:var(--veil-2); border-block:1px solid var(--veil-2);
+  }
+  .instruments div { background:var(--night); padding:26px 22px; text-align:center; }
+  .instruments .val { font:500 26px/1.2 'IBM Plex Mono', monospace; color:var(--moth); }
+  .instruments .val small { font-size:15px; color:var(--haze); }
+  .instruments .lbl { font-size:12.5px; color:var(--dim); margin-top:7px; }
+
+  /* ---------- sections ---------- */
+  section { max-width:1060px; margin:0 auto; padding:96px 28px 40px; }
+  .act-head { display:flex; align-items:baseline; gap:18px; margin-bottom:14px; }
+  .act-head .eyebrow { color:var(--moth); }
+  h2 { font:italic 460 clamp(30px,4.4vw,46px)/1.15 'Fraunces', Georgia, serif; margin-bottom:18px; }
+  .lede { max-width:680px; color:var(--ink); }
+  .lede + .lede { margin-top:14px; }
+  .lede .k { color:var(--moth); font-family:'IBM Plex Mono', monospace; font-size:.92em; }
+  .quiet { color:var(--haze); }
+  figure { margin:38px 0 0; }
+  figure video, figure img { width:100%; border-radius:12px; display:block; border:1px solid var(--veil-2); }
+  figcaption { font:400 12.5px 'IBM Plex Mono', monospace; color:var(--dim); padding:10px 2px 0; }
+  .seam-rule {
+    height:1px; max-width:1060px; margin:64px auto 0; border:0;
+    background:linear-gradient(90deg, transparent, var(--calm) 30%, var(--chaos) 70%, transparent);
+    opacity:.55;
+  }
+
+  /* ---------- .wsave anatomy ---------- */
+  .anatomy {
+    display:flex; flex-wrap:wrap; gap:10px; margin-top:34px; align-items:center;
+    font:400 13px 'IBM Plex Mono', monospace;
+  }
+  .anatomy .part {
+    padding:10px 14px; border:1px solid var(--veil-2); border-radius:9px;
+    background:var(--veil); color:var(--haze);
+  }
+  .anatomy .part b { color:var(--ink); font-weight:500; display:block; }
+  .anatomy .arrow { color:var(--dim); }
+  .anatomy .sum { border-color:var(--moth); color:var(--moth); }
+  .anatomy .sum b { color:var(--moth); }
+
+  /* ---------- chart ---------- */
+  .chart-wrap { margin-top:40px; background:var(--veil); border:1px solid var(--veil-2);
+                border-radius:14px; padding:28px 26px 18px; overflow-x:auto; }
+  .chart-wrap svg { width:100%; height:auto; display:block; min-width:520px; }
+  .legend { display:flex; gap:22px; margin-top:12px; font:400 12.5px 'IBM Plex Mono', monospace; color:var(--haze); flex-wrap:wrap; }
+  .legend i { display:inline-block; width:18px; height:2px; vertical-align:middle; margin-right:7px; }
+  svg .curve { fill:none; stroke-width:2.5; stroke-linejoin:round; }
+  svg .draw { stroke-dasharray:1600; stroke-dashoffset:1600; }
+  svg .draw.in { animation:draw 2.2s ease-out forwards; }
+  @keyframes draw { to { stroke-dashoffset:0; } }
+  @media (prefers-reduced-motion: reduce) { svg .draw { stroke-dasharray:none; stroke-dashoffset:0; } }
+  .stat-row { display:flex; gap:34px; flex-wrap:wrap; margin-top:34px; }
+  .stat-row div { min-width:150px; }
+  .stat-row .val { font:500 22px 'IBM Plex Mono', monospace; color:var(--ink); }
+  .stat-row .val em { color:var(--moth); font-style:normal; }
+  .stat-row .lbl { font-size:12.5px; color:var(--dim); margin-top:4px; }
+
+  /* ---------- modes ---------- */
+  .modes { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--veil-2);
+           border:1px solid var(--veil-2); border-radius:14px; overflow:hidden; margin-top:42px; }
+  @media (max-width:760px) { .modes { grid-template-columns:1fr; } }
+  .mode { background:var(--night); padding:30px 28px 34px; }
+  .mode .eyebrow { color:var(--dim); }
+  .mode h3 { font:italic 500 25px 'Fraunces', serif; margin:10px 0 10px; }
+  .mode h3 .ico { font-style:normal; margin-right:8px; }
+  .mode p { font-size:15px; color:var(--haze); }
+  .mode p b { color:var(--ink); font-weight:500; }
+  .mode .score { display:block; margin-top:14px; font:400 12px 'IBM Plex Mono', monospace; color:var(--dim); }
+
+  /* ---------- play ---------- */
+  pre {
+    margin-top:30px; background:#0E0C17; border:1px solid var(--veil-2); border-radius:12px;
+    padding:22px 24px; overflow-x:auto;
+    font:400 13.5px/1.75 'IBM Plex Mono', monospace; color:var(--ink);
+  }
+  pre .c { color:var(--dim); } pre .g { color:var(--calm); }
+  .honesty { margin-top:30px; padding:20px 24px; border-left:2px solid var(--moth);
+             background:var(--veil); border-radius:0 12px 12px 0; }
+  .honesty p { font-size:14.5px; color:var(--haze); }
+  .honesty p b { color:var(--ink); font-weight:500; }
+
+  /* ---------- colophon ---------- */
+  footer { border-top:1px solid var(--veil-2); margin-top:110px; padding:56px 28px 80px; text-align:center; }
+  footer .voice { padding:0 0 26px; }
+  footer .links { display:flex; gap:26px; justify-content:center; flex-wrap:wrap;
+                  font:400 13px 'IBM Plex Mono', monospace; }
+  footer .fine { margin-top:30px; font-size:12.5px; color:var(--dim); max-width:560px;
+                 margin-inline:auto; line-height:1.7; }
+</style>
+</head>
+<body>
+
+<nav aria-label="main">
+  <span class="mark">butterfly</span>
+  <a href="#m1">the save button</a>
+  <a href="#m2" class="hideS">chaos, measured</a>
+  <a href="#modes">four dreams</a>
+  <a href="#play">play</a>
+  <a href="https://github.com/lixuan27/butterfly">github ↗</a>
+</nav>
+
+<header>
+  <div class="hero-video">
+    <video autoplay muted loop playsinline preload="metadata" poster="assets/fork_2up_poster.jpg">
+      <source src="assets/fork_2up.mp4" type="video/mp4">
+    </video>
+  </div>
+  <div class="hero-shade"></div>
+  <div class="hero-seam" aria-hidden="true"></div>
+  <div class="hero-copy">
+    <div class="eyebrow">the same save file, resumed twice · same actions, different chance</div>
+    <h1>One save.<br><span class="f2">Two futures.</span></h1>
+    <p class="hero-sub"><b>Butterfly</b> is a small game played inside a neural world model.
+      The world is a file: save it, rewind it, fork it. What keeps the two copies
+      from staying the same is chaos — and in here, chaos is measured.</p>
+    <div class="cta-row">
+      <a class="btn gold" href="#play">Play it on your GPU</a>
+      <a class="btn" href="https://github.com/lixuan27/butterfly">Read the code ↗</a>
+    </div>
+  </div>
+</header>
+
+<div class="instruments" role="list">
+  <div role="listitem"><div class="val">29.5<small> fps</small></div><div class="lbl">one GPU · 1.8B world model</div></div>
+  <div role="listitem"><div class="val">PSNR ∞</div><div class="lbl">save → load → bit-exact resume</div></div>
+  <div role="listitem"><div class="val">4.4<small> s</small></div><div class="lbl">half-life of a world under chaos</div></div>
+  <div role="listitem"><div class="val">4.8<small> MB</small></div><div class="lbl">the smallest file a world fits in</div></div>
+</div>
+
+<section id="m1">
+  <div class="act-head"><span class="eyebrow">M1 · the save button</span></div>
+  <h2>The world is a file.</h2>
+  <p class="lede">In a neural game there is no level geometry, no entity list, no scene graph.
+    Every frame is sampled by a video diffusion model, and the only place the world
+    <em>exists</em> is the model's running state: a few gigabytes of attention cache,
+    a sliding window of latent frames, and the exact position of the random-number
+    generator.</p>
+  <p class="lede"><span class="k">.wsave</span> serializes all of it. Load one back and the world
+    resumes <b>bit-for-bit</b> — the same clouds, the same grass, the same next frame.
+    Neural games never had a save button. Now they do, and it turns out to be
+    a measuring instrument.</p>
+  <div class="anatomy" aria-label="what is inside a .wsave">
+    <span class="part"><b>KV caches ×4</b>the dream's short-term body</span>
+    <span class="part"><b>VAE conv cache</b>1.07 GB of streaming decoder</span>
+    <span class="part"><b>latent window</b>the last second of world</span>
+    <span class="part"><b>actions + RNG</b>everything you did, and fate's dice</span>
+    <span class="arrow">→</span>
+    <span class="part sum"><b>2,740 MB</b>exact, PSNR ∞</span>
+    <span class="part sum"><b>or 4.8 MB</b>re-primed, 41.8 dB</span>
+  </div>
+  <figure>
+    <video muted loop playsinline preload="metadata" controls poster="assets/showcase_poster.jpg">
+      <source src="assets/showcase.mp4" type="video/mp4">
+    </video>
+    <figcaption>drop an anchor → wander into a different future → load: the world comes back exactly.</figcaption>
+  </figure>
+  <p class="lede quiet" style="margin-top:30px">An honest footnote: naïvely quantizing the cache to int8 shrinks the file
+    to 1.9 GB and <em>ruins the world</em> (13.5 dB) — the state is far more fragile than the weights.
+    A 4.8 MB re-prime save matches that fidelity at <b>1/400th</b> of the size. The gap between
+    "exact" and "re-primed" is a direct measurement of what the cache remembers beyond the pixels.</p>
+</section>
+
+<hr class="seam-rule">
+
+<section id="m2">
+  <div class="act-head"><span class="eyebrow">M2 · chaos, measured</span></div>
+  <h2>Your opponent is a probability distribution.</h2>
+  <p class="lede">Freeze a world. Resume it twice with the <b>same actions but different noise</b>:
+    the copies drift apart with a half-life of <span class="k">109 frames — 4.4 seconds</span>.
+    Nothing in the game scripts this; it is the raw stochastic physics of the model.</p>
+  <p class="lede">Now do the opposite — same noise, <b>different action</b> — and the worlds
+    separate <span class="k">3.55×</span> faster. That single ratio is the entire premise of the game:
+    your hands are stronger than chance. But chance never stops.</p>
+  <div class="chart-wrap">
+    <svg viewBox="-46 -14 700 274" role="img" aria-label="Divergence over time: one changed action separates worlds 3.55 times faster than chaos alone">
+      <g font-family="IBM Plex Mono, monospace" font-size="11" fill="#8B84A8">
+        <text x="-40" y="18">drift</text>
+        <text x="596" y="252">frames</text>
+        <text x="0" y="252">0</text><text x="300" y="252">96</text><text x="612" y="252">192</text>
+      </g>
+      <line x1="0" y1="220" x2="640" y2="220" stroke="#2A2542" stroke-width="1"/>
+      <line x1="0" y1="20" x2="640" y2="20" stroke="#2A2542" stroke-width="1" stroke-dasharray="2 6"/>
+      <line x1="365" y1="20" x2="365" y2="220" stroke="#8B84A8" stroke-width="1" stroke-dasharray="3 5"/>
+      <text x="372" y="36" font-family="IBM Plex Mono, monospace" font-size="11.5" fill="#A99FD1">T½ = 4.4 s (chaos)</text>
+      <polyline class="curve draw" stroke="#FF5C7A" points="0,214 10,211 20,208 30,209 41,208 51,209 61,209 71,209 81,209 91,207 102,206 112,205 122,206 132,206 142,205 152,205 163,204 173,202 183,202 193,201 203,200 213,198 223,198 234,197 244,196 254,194 264,193 274,192 284,191 295,188 305,188 315,187 325,186 335,184 345,183 356,181 366,180 376,176 386,174 396,171 406,169 417,166 427,164 437,160 447,155 457,148 467,145 477,141 488,137 498,132 508,132 518,135 528,137 538,137 549,140 559,141 569,139 579,134 589,133 599,133 610,133 620,134 630,134 640,134"/>
+      <polyline class="curve draw" stroke="#E8C476" points="0,205 10,169 20,150 30,139 41,129 51,121 61,114 71,106 81,95 91,84 102,75 112,66 122,55 132,37 142,24 152,21 163,21 173,24 183,31 193,34 203,36 213,40 223,46 234,53 244,56 254,62 264,71 274,78 284,81 295,83 305,75 315,71 325,69 335,71 345,74 356,69 366,57 376,61 386,68 396,69 406,65 417,61 427,58 437,62 447,59 457,59 467,60 477,64 488,60 498,57 508,55 518,50 528,47 538,41 549,39 559,37 569,40 579,42 589,44 599,47 610,44 620,39 630,37 640,41"/>
+    </svg>
+    <div class="legend">
+      <span><i style="background:#E8C476"></i>one changed action (your hands)</span>
+      <span><i style="background:#FF5C7A"></i>chaos alone (same actions, re-rolled noise)</span>
+      <span class="quiet">measured on Matrix-Game-2.0 · latent MSE · 192 frames</span>
+    </div>
+  </div>
+  <div class="stat-row">
+    <div><div class="val"><em>3.55×</em></div><div class="lbl">controllability signal-to-noise ratio</div></div>
+    <div><div class="val">0.85 s</div><div class="lbl">the model's attention memory window</div></div>
+    <div><div class="val">164 s</div><div class="lbl">dream lifetime (RoPE budget) — then it collapses</div></div>
+  </div>
+</section>
+
+<hr class="seam-rule">
+
+<p class="voice">the dream is chaotic, finite, and forkable. so we made those the rules.</p>
+
+<section id="modes" style="padding-top:40px">
+  <div class="act-head"><span class="eyebrow">the game · four dreams</span></div>
+  <h2>Play against the physics, not a script.</h2>
+  <p class="lede">Every mechanic below exists <em>only</em> because the engine is a neural network.
+    A classical engine cannot offer any of these; a neural one cannot avoid them.</p>
+  <div class="modes">
+    <div class="mode">
+      <span class="eyebrow">flagship · convergence race</span>
+      <h3><span class="ico">⚔</span>Anchor Duel</h3>
+      <p>Anchor a moment, play on — that segment becomes the <b>original timeline</b>.
+        Then fate re-rolls, chaos starts pulling the world away, and you steer it back.
+        You play split-screen against your own ghost.</p>
+      <span class="score">score = world held vs doing nothing · graded on the measured chaos curve · mimicry scores zero</span>
+    </div>
+    <div class="mode">
+      <span class="eyebrow">divergence race</span>
+      <h3><span class="ico">🦋</span>One Flap</h3>
+      <p>Same fate — the saved RNG replays, bit-exact, nothing moves. You get <b>one</b>
+        wing-beat: a single changed action. Everything that differs afterwards is your ripple.</p>
+      <span class="score">verdict = your one flap vs a full re-roll of fate (S ≥ 1.25×)</span>
+    </div>
+    <div class="mode">
+      <span class="eyebrow">asynchronous multiplayer</span>
+      <h3><span class="ico">⇩</span>Relay</h3>
+      <p>A world is a file, so hand it to a friend. They adopt your <span class="k" style="font-size:.9em">.wsave</span>
+        and continue the dream on their own timeline. The tree grows across people.
+        <b>Multiplayer with zero netcode.</b></p>
+      <span class="score">2.7 GB exact · 4.8 MB re-primed (roadmap)</span>
+    </div>
+    <div class="mode">
+      <span class="eyebrow">sandbox</span>
+      <h3><span class="ico">☁</span>Lucid</h3>
+      <p>WASD through a photograph. Anchor, rewind, branch; watch the timeline tree grow,
+        and open the inspector to see the dream's 2.7 GB body — cache by cache.</p>
+      <span class="score">any image can become a world (image-to-world host)</span>
+    </div>
+  </div>
+  <figure>
+    <video muted loop playsinline preload="metadata" controls poster="assets/actions_2up_poster.jpg">
+      <source src="assets/actions_2up.mp4" type="video/mp4">
+    </video>
+    <figcaption>one save, two choices: the same world resumed under "turn left" vs "turn right".</figcaption>
+  </figure>
+</section>
+
+<hr class="seam-rule">
+
+<section id="play">
+  <div class="act-head"><span class="eyebrow">play</span></div>
+  <h2>Runs on one GPU. Honestly.</h2>
+  <p class="lede">Butterfly drives <a href="https://github.com/SkyworkAI/Matrix-Game">Matrix-Game-2.0</a>
+    (1.8B, MIT) as its first world model host — 29.5 fps at 352×640 on a single
+    H200, ≥24 GB VRAM. No hosted demo yet; you bring the GPU, we bring the save button.</p>
+<pre><code><span class="c"># 1 · code + world model source</span>
+git clone https://github.com/lixuan27/butterfly && cd butterfly
+bash scripts/get_matrix_game.sh          <span class="c"># clones MG2 + downloads weights (~28 GB)</span>
+
+<span class="c"># 2 · serve the dream (needs 1× GPU, ≥24 GB)</span>
+bash scripts/serve.sh                    <span class="c"># http://localhost:7860</span>
+
+<span class="c"># 3 · play</span>
+<span class="g">WASD</span> walk · <span class="g">IJKL</span> look · <span class="g">⚓</span> anchor · <span class="g">⚔</span> duel chaos · <span class="g">🦋</span> one flap · <span class="g">⇩</span> relay a dream</code></pre>
+  <div class="honesty">
+    <p><b>The dream has inertia.</b> Actions land once per world-move (~0.5 s) — every mode is
+      built for steering, not twitch reflexes. Dreams live 164 seconds before the position
+      encoding runs out and the world collapses. Both limits are physics, not design;
+      we wrote the fiction around them.</p>
+  </div>
+</section>
+
+<footer>
+  <p class="voice">every timeline you kept is still on disk.</p>
+  <div class="links">
+    <a href="https://github.com/lixuan27/butterfly">github</a>
+    <a href="https://github.com/lixuan27/butterfly#savebench--the-measurements">measurements</a>
+    <a href="https://github.com/lixuan27/butterfly#how-it-was-built">how it was built</a>
+  </div>
+  <p class="fine">Butterfly is the playable face of <b>SavePoint</b> — runtime-state serialization
+    for streaming world models. Built on Matrix-Game-2.0 (Skywork, MIT) and the
+    Self-Forcing lineage. Code, tests, measurements and every failed run are open.
+    MIT · by <a href="https://github.com/lixuan27">@lixuan27</a> · 2026</p>
+</footer>
+
+<script>
+  // one orchestrated moment: the divergence curves draw themselves on first reveal
+  const svg = document.querySelector('.chart-wrap svg');
+  if (svg && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    new IntersectionObserver((es, ob) => es.forEach(e => {
+      if (e.isIntersecting) { svg.querySelectorAll('.draw').forEach(p => p.classList.add('in')); ob.disconnect(); }
+    }), { threshold: .45 }).observe(svg);
+  }
+</script>
+</body>
+</html>

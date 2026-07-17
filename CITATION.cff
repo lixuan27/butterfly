@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use Butterfly / SavePoint in your research, please cite it as below."
+title: "Butterfly: save, rewind and fork a neural game world"
+authors:
+  - name: "lixuan27"
+type: software
+license: MIT
+repository-code: "https://github.com/lixuan27/butterfly"
+url: "https://lixuan27.github.io/butterfly/"
+date-released: 2026-07-18
+abstract: >-
+  Butterfly makes the runtime state of a streaming neural world model a
+  first-class object (.wsave): full-state serialization with bit-exact resume,
+  a playable timeline tree (save / rewind / fork), and game modes calibrated
+  against measured model physics (fork-divergence half-life, controllability
+  signal-to-noise ratio, minimal sufficient state).
