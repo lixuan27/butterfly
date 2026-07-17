@@ -257,6 +257,15 @@ class MissionTestCase(unittest.TestCase):
         self.assertIsNone(self.game.mission)
         self.game.drop_anchor("now allowed")
 
+    def test_new_game_clears_stale_mission(self):
+        self.game.start_mission(None, seed=3)
+        self.game.step(dict(A_W))
+        self.game.new_game(None, seed=5)   # "new" mid-mission must not leak
+        self.assertIsNone(self.game.mission)
+        _, _, msg = self.game.step(dict(A_W))
+        self.assertEqual(msg["type"], "stepped")
+        self.assertNotIn("mission", msg)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

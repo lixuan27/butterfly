@@ -124,6 +124,7 @@ class ButterflyGame:
         self.host.prime(image, seed=seed)
         self.mode = "free"
         self.anchors, self.ghosts, self.duel, self.bfly = [], {}, None, None
+        self.mission = None            # a fresh dream owes nothing to an old mission
         self._current_anchor = None
         return {"type": "started", **self._status()}
 
