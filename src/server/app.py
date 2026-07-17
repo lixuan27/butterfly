@@ -42,6 +42,35 @@ IMAGE_DIR = os.environ.get(
     os.path.join(PROJ, "third_party/mg2_src_fetch/Matrix-Game-2/demo_images/universal"))
 LOCK = asyncio.Lock()
 
+# one dreamer at a time: first socket holds the seat, the rest watch and wait
+CLIENTS: list = []            # connection order = queue order
+PLAYER: "WebSocket|None" = None
+
+
+async def _send_safe(ws, *, text=None, blob=None):
+    try:
+        if text is not None:
+            await ws.send_text(text)
+        if blob is not None:
+            await ws.send_bytes(blob)
+    except Exception:
+        pass  # a dead spectator must never kill the dream
+
+
+async def _broadcast(*, text=None, blob=None):
+    for ws in list(CLIENTS):
+        await _send_safe(ws, text=text, blob=blob)
+
+
+async def _seat_update():
+    """Tell every client its role and place in line."""
+    for i, ws in enumerate(list(CLIENTS)):
+        role = "player" if ws is PLAYER else "waiting"
+        await _send_safe(ws, text=json.dumps(
+            {"type": "seat", "role": role,
+             "position": 0 if ws is PLAYER else i,
+             "watchers": len(CLIENTS) - 1}))
+
 
 @app.on_event("startup")
 def startup() -> None:
@@ -78,6 +107,12 @@ def index() -> HTMLResponse:
         return HTMLResponse(fh.read())
 
 
+@app.get("/health")
+def health() -> dict:
+    return {"gpu": GAME is not None, "clients": len(CLIENTS),
+            "seat_taken": PLAYER is not None}
+
+
 @app.get("/export/{anchor_id}")
 def export(anchor_id: str) -> FileResponse:
     """Relay: download an anchor's .wsave (the file is immutable once written)."""
@@ -110,24 +145,61 @@ def _jpeg_frames(frames_u8, stream_id: int, first_index: int):
     return out
 
 
+FRAME_NO = 0
+READ_ONLY = {"tree", "inspect"}
+
+
 @app.websocket("/ws")
 async def ws(sock: WebSocket) -> None:
+    global PLAYER, FRAME_NO
     await sock.accept()
-    frame_no = 0
+    CLIENTS.append(sock)
+    if PLAYER is None:
+        PLAYER = sock
+    await _seat_update()
     try:
         while True:
             msg = json.loads(await sock.receive_text())
             mtype = msg.get("type")
             async with LOCK:
                 try:
-                    if mtype == "new":
+                    if GAME is None:
+                        await _send_safe(sock, text=json.dumps(
+                            {"type": "error", "error":
+                             "this hosted dream has no GPU yet — a grant is "
+                             "pending; clone the repo and play on your own GPU"}))
+                        continue
+                    if sock is not PLAYER and mtype not in READ_ONLY:
+                        if mtype == "handoff":
+                            continue  # only the player can hand the seat over
+                        pos = CLIENTS.index(sock) if sock in CLIENTS else -1
+                        await _send_safe(sock, text=json.dumps(
+                            {"type": "error", "error":
+                             f"the seat is taken — you are watching "
+                             f"(#{pos} in line); the dream is shared live"}))
+                        continue
+                    if mtype in ("new", "mission"):
                         image = _load_image(msg.get("image", "0003.png"))
                         t0 = time.time()
+                        fn = GAME.start_mission if mtype == "mission" else GAME.new_game
                         info = await asyncio.to_thread(
-                            GAME.new_game, image, int(msg.get("seed", 1234)))
+                            fn, image, int(msg.get("seed", 1234)))
                         info["prime_ms"] = (time.time() - t0) * 1000
-                        frame_no = 0
-                        await sock.send_text(json.dumps(info))
+                        FRAME_NO = 0
+                        await _broadcast(text=json.dumps(info))
+                    elif mtype == "mission_tear":
+                        await _broadcast(text=json.dumps(await asyncio.to_thread(
+                            GAME.mission_tear,
+                            int(msg.get("seed", int(time.time()) % 100000)))))
+                    elif mtype == "mission_abandon":
+                        await _broadcast(text=json.dumps(await asyncio.to_thread(
+                            GAME.abandon_mission)))
+                    elif mtype == "handoff":
+                        # the player gives up the seat: rotate to the next in line
+                        CLIENTS.remove(sock)
+                        CLIENTS.append(sock)
+                        PLAYER = CLIENTS[0]
+                        await _seat_update()
                     elif mtype == "action":
                         t0 = time.time()
                         live, ghost, info = await asyncio.to_thread(
@@ -135,49 +207,55 @@ async def ws(sock: WebSocket) -> None:
                                         "mouse": msg.get("mouse", [0.0, 0.0]),
                                         "flap": bool(msg.get("flap", False))})
                         if live is not None:
-                            for blob in _jpeg_frames(live, 0, frame_no):
-                                await sock.send_bytes(blob)
+                            for blob in _jpeg_frames(live, 0, FRAME_NO):
+                                await _broadcast(blob=blob)
                             if ghost is not None:
-                                for blob in _jpeg_frames(ghost, 1, frame_no):
-                                    await sock.send_bytes(blob)
-                            frame_no += live.shape[0]
+                                for blob in _jpeg_frames(ghost, 1, FRAME_NO):
+                                    await _broadcast(blob=blob)
+                            FRAME_NO += live.shape[0]
                         info["step_ms"] = (time.time() - t0) * 1000
-                        await sock.send_text(json.dumps(info))
+                        await _broadcast(text=json.dumps(info))
                     elif mtype == "anchor":
-                        await sock.send_text(json.dumps(await asyncio.to_thread(
+                        await _broadcast(text=json.dumps(await asyncio.to_thread(
                             GAME.drop_anchor, msg.get("label", ""))))
                     elif mtype == "rewind":
-                        await sock.send_text(json.dumps(await asyncio.to_thread(
+                        await _broadcast(text=json.dumps(await asyncio.to_thread(
                             GAME.rewind, msg["anchor_id"])))
                     elif mtype == "duel":
-                        await sock.send_text(json.dumps(await asyncio.to_thread(
+                        await _broadcast(text=json.dumps(await asyncio.to_thread(
                             GAME.start_duel, msg["anchor_id"],
                             int(msg.get("seed", int(time.time()) % 100000)))))
                     elif mtype == "butterfly":
-                        await sock.send_text(json.dumps(await asyncio.to_thread(
+                        await _broadcast(text=json.dumps(await asyncio.to_thread(
                             GAME.start_butterfly, msg["anchor_id"])))
                     elif mtype == "import":
-                        await sock.send_text(json.dumps(await asyncio.to_thread(
+                        await _broadcast(text=json.dumps(await asyncio.to_thread(
                             GAME.import_save, msg["path"], msg.get("label", ""))))
                     elif mtype == "tree":
-                        await sock.send_text(json.dumps(
+                        await _send_safe(sock, text=json.dumps(
                             {"type": "tree", "tree": GAME.timeline.to_tree(),
                              "current": getattr(GAME, "_current_anchor", None)}))
                     elif mtype == "inspect":
                         comp = await asyncio.to_thread(GAME.host.state_components)
-                        await sock.send_text(json.dumps(
+                        await _send_safe(sock, text=json.dumps(
                             {"type": "inspect",
                              "components": {k: int(v) for k, v in comp.items()}}))
                     else:
-                        await sock.send_text(json.dumps(
+                        await _send_safe(sock, text=json.dumps(
                             {"type": "error", "error": f"unknown type {mtype}"}))
-                except Exception as e:  # report to client; keep the socket alive
+                except Exception as e:  # report to the sender; keep sockets alive
                     import traceback
                     traceback.print_exc()
-                    await sock.send_text(json.dumps(
+                    await _send_safe(sock, text=json.dumps(
                         {"type": "error", "error": f"{type(e).__name__}: {e}"}))
     except WebSocketDisconnect:
         pass
+    finally:
+        if sock in CLIENTS:
+            CLIENTS.remove(sock)
+        if sock is PLAYER:
+            PLAYER = CLIENTS[0] if CLIENTS else None
+        await _seat_update()
 
 
 def main() -> None:

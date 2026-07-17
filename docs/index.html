@@ -197,6 +197,7 @@
   <span class="mark">butterfly</span>
   <a href="#m1">the save button</a>
   <a href="#m2" class="hideS">chaos, measured</a>
+  <a href="#missionx">the mission</a>
   <a href="#modes">four dreams</a>
   <a href="#play">play</a>
   <a href="https://github.com/lixuan27/butterfly">github ↗</a>
@@ -299,6 +300,26 @@
     <div><div class="val">0.85 s</div><div class="lbl">the model's attention memory window</div></div>
     <div><div class="val">164 s</div><div class="lbl">dream lifetime (RoPE budget) — then it collapses</div></div>
   </div>
+  <p class="lede quiet" style="margin-top:34px">Kindred instrument: <a href="https://www.nicklashansen.com/mmbench2/">Hansen &amp; Wang</a>
+    detect world-model hallucination live with label-free predictors and dare you to <em>break</em> their
+    world. Butterfly is the mirror image — chaos is always breaking ours, and the game is to <em>hold</em> it.
+    Their flow-instability meter is on our roadmap as a live "dream stability" gauge.</p>
+</section>
+
+<hr class="seam-rule">
+
+<section id="missionx">
+  <div class="act-head"><span class="eyebrow">the objective · hold the dream</span></div>
+  <h2>The mission: your world is about to be re-rolled.</h2>
+  <p class="lede">Butterfly's default run has one explicit goal. You get <b>10 moves</b> to walk —
+    that walk becomes the <em>original timeline</em>, the world you must defend. Then
+    <span class="k">THE TEAR</span>: fate re-rolls, and chaos starts pulling the dream away from
+    what it was.</p>
+  <p class="lede"><b>Hold it for 10 moves.</b> Each move where you push the world further than chaos
+    itself would (drift &gt; 1.25× the measured baseline) is a <span class="k">strike</span> —
+    three strikes and the dream tears. Survive, and you're graded S/A/B/C by how much more world
+    you held than doing nothing. The frame's border burns green → red with your drift, live.
+    Mimicry scores zero; you win by steering <em>against</em> the drift.</p>
 </section>
 
 <hr class="seam-rule">
@@ -372,6 +393,13 @@ bash scripts/serve.sh                    <span class="c"># http://localhost:7860
       built for steering, not twitch reflexes. Dreams live 164 seconds before the position
       encoding runs out and the world collapses. Both limits are physics, not design;
       we wrote the fiction around them.</p>
+  </div>
+  <div class="honesty" style="margin-top:16px; border-left-color:var(--calm)">
+    <p><b>Play in the browser, hosted — coming.</b> The server already runs a one-seat queue
+      (one dreamer plays, everyone spectates live, the seat rotates), so a single hosted GPU
+      serves a crowd. We're lining up that GPU now; hosted sessions will be announced on
+      <a href="https://github.com/lixuan27/butterfly">GitHub</a>. Until then it's
+      bring-your-own-GPU, honestly.</p>
   </div>
 </section>
 

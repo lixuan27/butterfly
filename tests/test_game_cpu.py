@@ -181,5 +181,76 @@ class GameTestCase(unittest.TestCase):
             self.game.import_save(info["path"])
 
 
+class MissionTestCase(unittest.TestCase):
+    def setUp(self):
+        import server.game as G
+        self._orig = G.MISSION_EXPLORE_BLOCKS
+        G.MISSION_EXPLORE_BLOCKS = 2       # short missions for tests
+        self.G = G
+        self.dir = tempfile.mkdtemp(prefix="savepoint_mission_")
+        self.game = ButterflyGame(FakeHost(), Timeline(self.dir), self.dir)
+
+    def tearDown(self):
+        self.G.MISSION_EXPLORE_BLOCKS = self._orig
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def _explore_and_tear(self):
+        ms = self.game.start_mission(None, seed=3)
+        self.assertEqual(ms["type"], "mission_started")
+        _, _, s1 = self.game.step(dict(A_W))
+        self.assertEqual(s1["mission"], {"phase": "explore", "tear_in": 1,
+                                         "tear_now": False})
+        _, _, s2 = self.game.step(dict(A_W))
+        self.assertTrue(s2["mission"]["tear_now"])
+        tear = self.game.mission_tear(seed=9)
+        self.assertEqual(tear["type"], "mission_tear")
+        self.assertEqual(tear["total"], 2)
+        return tear
+
+    def test_mission_held(self):
+        self._explore_and_tear()
+        # FakeHost is deterministic: mimicry is a perfect hold -> no strikes
+        _, _, t1 = self.game.step(dict(A_W))
+        self.assertEqual(t1["mission"]["strikes"], 0)
+        _, _, end = self.game.step(dict(A_W))
+        self.assertEqual(end["type"], "mission_end")
+        self.assertTrue(end["won"])
+        self.assertEqual(end["reason"], "held")
+        self.assertIsNone(self.game.mission)
+        self.assertEqual(self.game.mode, "free")
+
+    def test_mission_torn_by_strikes(self):
+        import server.game as G
+        orig_strikes = G.MISSION_STRIKES
+        G.MISSION_STRIKES = 2
+        try:
+            self._explore_and_tear()
+            # a microscopic chaos baseline makes any divergence a strike
+            self.game.chaos_curve = [1e-9] * 400
+            _, _, t1 = self.game.step(dict(A_A))   # diverging action -> strike 1
+            self.assertEqual(t1["mission"]["strikes"], 1)
+            _, _, end = self.game.step(dict(A_A))  # strike 2 -> torn
+            self.assertEqual(end["type"], "mission_end")
+            self.assertFalse(end["won"])
+            self.assertEqual(end["reason"], "torn")
+            self.assertIsNone(self.game.mission)
+            self.assertEqual(self.game.mode, "free")
+        finally:
+            G.MISSION_STRIKES = orig_strikes
+
+    def test_mission_guards_controls(self):
+        self.game.start_mission(None, seed=3)
+        for call in (lambda: self.game.drop_anchor("x"),
+                     lambda: self.game.rewind(self.game.anchors[0]),
+                     lambda: self.game.start_butterfly(self.game.anchors[0])):
+            with self.assertRaises(RuntimeError):
+                call()
+        # abandoning frees the controls again
+        self.game.step(dict(A_W))
+        self.game.abandon_mission()
+        self.assertIsNone(self.game.mission)
+        self.game.drop_anchor("now allowed")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -53,6 +53,27 @@ class ButterflyState:
     dists: List[float] = field(default_factory=list)  # from the flap onward
 
 
+# Mission「守梦远征」— the default objective. Explore N blocks (they become the
+# original timeline), then fate re-rolls (THE TEAR) and you must hold the world:
+# a block whose similarity-vs-ghost falls to 0 (worse than doing nothing against
+# chaos) is a strike; MISSION_STRIKES strikes tear the dream. Survive the full
+# hold and the dream is held — graded by the usual duel score.
+MISSION_EXPLORE_BLOCKS = 10
+MISSION_STRIKES = 3
+# Tear line, calibrated on the 184931 e2e measurement: a player who merely
+# mimics their ghost sits at similarity ~0 (score 0.043) and must NOT strike
+# out; a strike means actively pushing the world further than chaos itself
+# (dist > 1.25x the measured chaos baseline).
+MISSION_TEAR_LINE = -0.25
+
+
+@dataclass
+class MissionState:
+    phase: str = "explore"            # explore | hold
+    anchor_id: Optional[str] = None
+    strikes: int = 0
+
+
 class ButterflyGame:
     def __init__(self, host, timeline, save_dir: str,
                  chaos_baseline_path: Optional[str] = None):
@@ -64,6 +85,7 @@ class ButterflyGame:
         self.ghosts: Dict[str, Ghost] = {}
         self.duel: Optional[DuelState] = None
         self.bfly: Optional[ButterflyState] = None
+        self.mission: Optional[MissionState] = None
         self.chaos_curve = self._load_chaos_baseline(chaos_baseline_path)
 
     # -- helpers -------------------------------------------------------------
@@ -108,7 +130,10 @@ class ButterflyGame:
             raise RuntimeError("start a game first")
         if self.blocks_left <= 0:
             self.mode = "idle"
-            return None, None, {"type": "collapsed", **self._status()}
+            msg = {"type": "collapsed", **self._status()}
+            if self.mission is not None:
+                msg = self._mission_msg(msg)
+            return None, None, msg
         flap = bool(action.get("flap"))
         action = {"keys": action.get("keys", []), "mouse": action.get("mouse", [0.0, 0.0])}
         if self.mode == "butterfly":
@@ -165,6 +190,8 @@ class ButterflyGame:
                 g.latents.append(result.latents.float().cpu())
                 g.actions.append(action)
             msg = {"type": "stepped", "stats": result.stats, **self._status()}
+        if self.mission is not None:
+            msg = self._mission_msg(msg)
         return live_u8, ghost_u8, msg
 
     def _similarity(self, dist: float) -> float:
@@ -173,6 +200,7 @@ class ButterflyGame:
 
     def drop_anchor(self, label: str) -> Dict[str, Any]:
         from savepoint.state import save_wsave
+        self._mission_guard()
         if self.mode != "free":
             raise RuntimeError("anchors only in free play")
         if len(self.anchors) >= MAX_ANCHORS:
@@ -194,6 +222,7 @@ class ButterflyGame:
 
     def rewind(self, anchor_id: str) -> Dict[str, Any]:
         from savepoint.state import load_wsave
+        self._mission_guard()
         if anchor_id not in self.ghosts:
             raise KeyError(f"unknown anchor {anchor_id}")
         self.host.restore(load_wsave(os.path.join(
@@ -208,6 +237,7 @@ class ButterflyGame:
 
     def start_duel(self, anchor_id: str, seed: int) -> Dict[str, Any]:
         from savepoint.state import load_wsave
+        self._mission_guard()
         ghost = self.ghosts.get(anchor_id)
         if not ghost or not ghost.latents:
             raise RuntimeError("play some blocks after this anchor first — "
@@ -241,6 +271,7 @@ class ButterflyGame:
 
     def start_butterfly(self, anchor_id: str) -> Dict[str, Any]:
         from savepoint.state import load_wsave
+        self._mission_guard()
         ghost = self.ghosts.get(anchor_id)
         if not ghost or not ghost.latents:
             raise RuntimeError("play some blocks after this anchor first — "
@@ -276,6 +307,99 @@ class ButterflyGame:
                 "amp": amp, "flap_block": b.flap_block, "mean_dist": mean_d,
                 "chaos_baseline": base, "dists": b.dists, **self._status()}
 
+    # -- mission「守梦远征」— the default objective ---------------------------
+
+    def start_mission(self, image, seed: int) -> Dict[str, Any]:
+        """New dream with an explicit goal: explore, survive the tear, hold."""
+        self.mission = None            # clear any stale mission before reset
+        self.new_game(image, seed)
+        anchor = self.drop_anchor("home")
+        self.mission = MissionState(anchor_id=anchor["save_id"])
+        return {"type": "mission_started", "anchor": anchor["save_id"],
+                "explore_blocks": MISSION_EXPLORE_BLOCKS,
+                "strikes_allowed": MISSION_STRIKES,
+                "anchor_bytes": anchor["bytes"], **self._status()}
+
+    def mission_tear(self, seed: int) -> Dict[str, Any]:
+        """Fate re-rolls; the hold phase begins."""
+        m = self.mission
+        if not m or m.phase != "explore":
+            raise RuntimeError("no mission is exploring")
+        ghost = self.ghosts.get(m.anchor_id)
+        if not ghost or not ghost.latents:
+            raise RuntimeError("walk a little first — the tear needs a timeline to threaten")
+        self.mission = None            # internal duel start bypasses the guard
+        try:
+            msg = self.start_duel(m.anchor_id, seed)
+        finally:
+            self.mission = m
+        m.phase, m.strikes = "hold", 0
+        return {**msg, "type": "mission_tear",
+                "strikes_allowed": MISSION_STRIKES}
+
+    def abandon_mission(self) -> Dict[str, Any]:
+        m = self.mission
+        if not m:
+            raise RuntimeError("no mission to abandon")
+        self.mission = None
+        if self.mode == "duel" and self.duel and self.duel.anchor_id == m.anchor_id:
+            self.mode, self.duel = "free", None
+            self.ghosts[m.anchor_id] = Ghost()
+        return {"type": "mission_abandoned", **self._status()}
+
+    def _mission_guard(self) -> None:
+        if self.mission is not None:
+            raise RuntimeError("the mission holds this dream — "
+                               "hold it to the end or abandon it first")
+
+    def _mission_msg(self, msg: Dict[str, Any]) -> Dict[str, Any]:
+        """Overlay mission progress / verdicts onto the base message stream."""
+        m = self.mission
+        if msg["type"] == "stepped" and m.phase == "explore":
+            played = len(self.ghosts[m.anchor_id].actions)
+            tear_in = max(0, MISSION_EXPLORE_BLOCKS - played)
+            msg["mission"] = {"phase": "explore", "tear_in": tear_in,
+                              "tear_now": tear_in == 0}
+        elif msg["type"] == "duel_tick" and m.phase == "hold":
+            base = self._chaos_mean(max(1, msg["block"]))
+            sim_raw = 1.0 - msg["dist"] / max(base, 1e-9)
+            if sim_raw < MISSION_TEAR_LINE:
+                m.strikes += 1
+            if m.strikes >= MISSION_STRIKES:
+                d = self.duel
+                self.mode, self.duel, self.mission = "free", None, None
+                self.ghosts[d.anchor_id] = Ghost()
+                mean_d = sum(d.dists) / len(d.dists)
+                return {"type": "mission_end", "won": False, "reason": "torn",
+                        "strikes": MISSION_STRIKES, "held": d.block,
+                        "total": msg["total"], "mean_dist": mean_d,
+                        "chaos_baseline": self._chaos_mean(len(d.dists)),
+                        **self._status()}
+            msg["mission"] = {"phase": "hold", "strikes": m.strikes,
+                              "strikes_allowed": MISSION_STRIKES,
+                              "sim_raw": sim_raw,
+                              "held": msg["block"], "total": msg["total"]}
+        elif msg["type"] == "duel_end" and m.phase == "hold":
+            # the final block ends the duel before its tick — judge it here too
+            dists = msg.get("dists") or []
+            if dists:
+                base = self._chaos_mean(len(dists))
+                if 1.0 - dists[-1] / max(base, 1e-9) < MISSION_TEAR_LINE:
+                    m.strikes += 1
+            self.mission = None
+            if m.strikes >= MISSION_STRIKES:
+                msg = {**msg, "type": "mission_end", "won": False,
+                       "reason": "torn", "strikes": m.strikes,
+                       "held": len(dists), "total": len(dists)}
+            else:
+                msg = {**msg, "type": "mission_end", "won": True,
+                       "reason": "held", "strikes": m.strikes}
+        elif msg["type"] == "collapsed":
+            self.mission = None
+            msg = {**msg, "type": "mission_end", "won": False,
+                   "reason": "collapsed", "strikes": m.strikes}
+        return msg
+
     # -- relay「传梦」 --------------------------------------------------------
 
     def export_info(self, anchor_id: str) -> Dict[str, Any]:
@@ -290,6 +414,7 @@ class ButterflyGame:
     def import_save(self, path: str, label: str = "") -> Dict[str, Any]:
         import shutil
         from savepoint.state import load_wsave
+        self._mission_guard()
         if self.mode in ("duel", "butterfly"):
             raise RuntimeError("finish the current round first")
         if len(self.anchors) >= MAX_ANCHORS:

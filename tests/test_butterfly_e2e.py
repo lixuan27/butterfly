@@ -89,5 +89,42 @@ def main():
     print("BUTTERFLY E2E PASS", flush=True)
 
 
+def mission_flow():
+    """Mission「守梦远征」 on GPU: explore -> tear -> hold -> verdict."""
+    import server.game as G
+    G.MISSION_EXPLORE_BLOCKS = 3           # short mission for the e2e
+    from fastapi.testclient import TestClient
+    from server.app import app
+
+    WALK = {"type": "action", "keys": ["w"], "mouse": [0.0, 0.05]}
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as ws:
+            ws.send_text(json.dumps({"type": "mission", "image": "0003.png",
+                                     "seed": 11}))
+            ms = recv_until_json(ws, {"mission_started"})
+            assert ms["explore_blocks"] == 3 and ms["anchor"]
+            tear_seen = False
+            for _ in range(3):
+                ws.send_text(json.dumps(WALK))
+                s = recv_until_json(ws, {"stepped"}, [])
+                if s["mission"]["tear_now"]:
+                    tear_seen = True
+            assert tear_seen, "explore must end in tear_now"
+            ws.send_text(json.dumps({"type": "mission_tear", "seed": 77}))
+            tear = recv_until_json(ws, {"mission_tear"})
+            assert tear["total"] == 3 and tear["strikes_allowed"] == 3
+            end = None
+            for _ in range(3):
+                ws.send_text(json.dumps(WALK))     # mimic the ghost
+                info = recv_until_json(ws, {"duel_tick", "mission_end"}, [])
+                if info["type"] == "mission_end":
+                    end = info
+            assert end is not None and end["reason"] in ("held", "torn")
+            print(f"[mission-e2e] {end['reason']} won={end['won']} "
+                  f"strikes={end['strikes']} grade={end.get('grade')}", flush=True)
+    print("MISSION E2E PASS", flush=True)
+
+
 if __name__ == "__main__":
     main()
+    mission_flow()

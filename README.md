@@ -23,6 +23,17 @@ save/rewind/fork system for neural games. Nearest neighbours are in LLM serving
 diverges" finding our full-state contract confirms) and KV-memory
 ([WorldKV](https://arxiv.org/abs/2605.22718)).
 
+## The objective — Hold the Dream
+
+The default run has an explicit goal. **Explore 10 moves** (that walk becomes the
+*original timeline*), then **THE TEAR**: fate re-rolls and chaos starts pulling the world
+away. **Hold it for 10 moves** — pushing the world further than chaos itself (drift >
+1.25× the measured baseline) is a strike, three strikes and the dream tears. Survive and
+you're graded S/A/B/C against the measured chaos curve. The frame's border burns
+green→red with live drift (a nod to [Hansen & Wang's](https://www.nicklashansen.com/mmbench2/)
+live hallucination detectors — they dare you to *break* their world; here, chaos breaks
+ours and you *hold* it).
+
 ## The four modes
 
 | | mode | the rule it's built on |

@@ -59,6 +59,17 @@
   button[disabled] { opacity:.4; cursor:default; }
   #keys { color:var(--haze); font-size:12px; }
   #hint { font:12px ui-monospace, monospace; color:var(--moth); min-height:1em; }
+  /* mission banner + strikes; live canvas border = drift status (after mmbench2) */
+  #mission-bar { display:none; align-items:center; gap:12px;
+                 font:500 12px ui-monospace, monospace; color:var(--moth); }
+  #mission-bar.on { display:flex; }
+  #strikes { display:flex; gap:5px; }
+  #strikes i { width:14px; height:14px; border-radius:3px; background:var(--veil-2);
+               border:1px solid var(--veil-2); font-style:normal; }
+  #strikes i.hit { background:var(--chaos); box-shadow:0 0 8px var(--chaos); }
+  #live-c { border:2px solid transparent; transition:border-color .3s, box-shadow .3s; }
+  .holding #live-c { border-color:var(--drift-color, var(--calm));
+                     box-shadow:0 0 16px -4px var(--drift-color, var(--calm)); }
   /* ---------- side ---------- */
   #side { border-left:1px solid var(--veil-2); padding:16px 14px; overflow-y:auto; }
   #side h3 { margin:14px 0 8px; font:11px system-ui; text-transform:uppercase;
@@ -112,8 +123,10 @@
   </div>
   <div id="stability"><span>the dream holds for</span><b id="blocks-left">—</b><span>more moves</span><span id="bar"><i style="width:100%"></i></span></div>
   <div id="hint"></div>
+  <div id="mission-bar"><span id="mission-text"></span><span id="strikes"></span></div>
   <div id="hud">
-    <button class="gold" id="new">Begin a dream</button>
+    <button class="gold" id="mission">⚔ Enter the mission</button>
+    <button id="new">☁ Free dream</button>
     <button id="anchor" disabled>⚓ Drop anchor</button>
     <button id="duel" disabled>⚔ Defend this timeline</button>
     <button id="bfly" disabled>🦋 One flap</button>
@@ -140,6 +153,7 @@ const liveCtx = $('live-c').getContext('2d'), ghostCtx = $('ghost-c').getContext
 let ws, playing = false, mode = 'idle', anchors = [], currentAnchor = null;
 let liveQ = [], ghostQ = [], ghostActions = [], duelBlock = 0;
 let flapped = false, pendingFlap = false;
+let mission = null, tearSent = false, seatRole = 'player';
 
 const held = new Set();
 addEventListener('keydown', e => {
@@ -191,7 +205,13 @@ function onEvent(m) {
     playing = true; setMode('free'); voice('you are dreaming. walk.');
     updateStability(m); refreshSide(); stepLoop();
   }
-  else if (m.type === 'stepped') { updateStability(m); if (playing) stepLoop(); }
+  else if (m.type === 'stepped') {
+    if (m.mission && m.mission.phase === 'explore') {
+      missionBanner(`the tear comes in ${m.mission.tear_in} moves — this walk becomes the world you must defend`);
+      if (m.mission.tear_now && !tearSent) { tearSent = true; send({ type: 'mission_tear' }); }
+    }
+    updateStability(m); if (playing) stepLoop();
+  }
   else if (m.type === 'anchored') {
     anchors = m.anchors; currentAnchor = m.save_id;
     voice(`anchor set — this moment is ${ (m.bytes/1e9).toFixed(1) } GB of world, kept.`);
@@ -209,6 +229,11 @@ function onEvent(m) {
   }
   else if (m.type === 'duel_tick') {
     duelBlock = m.block; seam(m.similarity); updateStability(m); showHint();
+    if (m.mission && m.mission.phase === 'hold') {
+      renderStrikes(m.mission.strikes, m.mission.strikes_allowed);
+      driftBorder(m.mission.sim_raw);
+      missionBanner(`hold the world — move ${m.mission.held}/${m.mission.total}`);
+    }
     if (playing) stepLoop();
   }
   else if (m.type === 'duel_end') {
@@ -221,6 +246,50 @@ function onEvent(m) {
     $('v-said').textContent = `mean drift ${m.mean_dist.toFixed(3)} vs baseline ${m.chaos_baseline.toFixed(3)}`;
     $('verdict').classList.add('show');
     updateStability(m); refreshSide();
+  }
+  else if (m.type === 'seat') {
+    const was = seatRole; seatRole = m.role;
+    if (m.role === 'waiting')
+      voice(`another dreamer holds the seat — you are watching, #${m.position} in line.`);
+    else if (was === 'waiting')
+      voice('the seat is yours now. dream.');
+    setMode(mode);
+  }
+  else if (m.type === 'mission_started') {
+    playing = true; mission = { phase: 'explore' }; tearSent = false;
+    anchors = m.anchors; currentAnchor = m.anchor;
+    liveQ = []; ghostQ = []; setMode('free');
+    voice('you are dreaming. walk — in ' + m.explore_blocks + ' moves, fate will re-roll.');
+    missionBanner(`explore · the tear comes in ${m.explore_blocks} moves`);
+    renderStrikes(0, m.strikes_allowed);
+    updateStability(m); refreshSide(); stepLoop();
+  }
+  else if (m.type === 'mission_tear') {
+    mission = { phase: 'hold' };
+    setMode('duel'); ghostActions = m.ghost_actions; duelBlock = 0;
+    document.body.classList.add('holding');
+    voice('THE TEAR. chance has been re-rolled — hold your world together.');
+    missionBanner(`hold the world — ${m.total} moves, ${m.strikes_allowed} strikes and the dream tears`);
+    seam(1); showHint(); stepLoop();
+  }
+  else if (m.type === 'mission_end') {
+    mission = null; document.body.classList.remove('holding');
+    setMode('free'); seam(1); $('hint').textContent = ''; missionBanner('');
+    $('v-grade').textContent = m.won ? (m.grade || 'HELD') : '✕';
+    $('v-line').textContent = m.won
+      ? `the dream held. you kept ${Math.round((m.score || 0) * 100)}% more world than chaos allows.`
+      : m.reason === 'torn'
+        ? `the dream tore at move ${m.held} — you pushed it further than chaos itself.`
+        : 'the dream collapsed before the hold was done.';
+    $('v-said').textContent = m.mean_dist !== undefined
+      ? `mean drift ${m.mean_dist.toFixed(3)} vs chaos ${m.chaos_baseline.toFixed(3)} · strikes ${m.strikes}`
+      : '';
+    $('verdict').classList.add('show');
+    updateStability(m); refreshSide();
+  }
+  else if (m.type === 'mission_abandoned') {
+    mission = null; document.body.classList.remove('holding');
+    missionBanner(''); setMode('free'); voice('the mission let go. the dream is yours.');
   }
   else if (m.type === 'butterfly_started') {
     setMode('butterfly'); ghostActions = m.ghost_actions; duelBlock = 0;
@@ -269,9 +338,31 @@ function setMode(m) {
   const two = m === 'duel' || m === 'butterfly';
   $('worlds').parentElement.classList.toggle('duel', two);
   document.body.classList.toggle('duel', two);
-  $('anchor').disabled = m !== 'free' || anchors.length >= 3;
-  $('duel').disabled = m !== 'free' || !currentAnchor;
-  $('bfly').disabled = m !== 'free' || !currentAnchor;
+  const spect = seatRole === 'waiting';  // spectators watch; the seat rotates
+  const locked = spect || mission !== null;
+  $('mission').disabled = spect;
+  $('new').disabled = spect;
+  $('anchor').disabled = locked || m !== 'free' || anchors.length >= 3;
+  $('duel').disabled = locked || m !== 'free' || !currentAnchor;
+  $('bfly').disabled = locked || m !== 'free' || !currentAnchor;
+}
+function missionBanner(t) {
+  $('mission-bar').classList.toggle('on', !!t);
+  $('mission-text').textContent = t;
+}
+function renderStrikes(n, total) {
+  const el = $('strikes'); el.innerHTML = '';
+  for (let i = 0; i < total; i++) {
+    const s = document.createElement('i');
+    if (i < n) s.className = 'hit';
+    el.appendChild(s);
+  }
+}
+function driftBorder(simRaw) {
+  const s = Math.max(0, Math.min(1, (simRaw + 1) / 2));  // -1..1 -> 0..1
+  const mix = (a, b) => Math.round(a + (b - a) * (1 - s));
+  document.documentElement.style.setProperty('--drift-color',
+    `rgb(${mix(0x6F,0xFF)},${mix(0xE3,0x5C)},${mix(0xC1,0x7A)})`);
 }
 function seam(similarity) {
   const s = Math.max(0, Math.min(1, similarity));
@@ -317,7 +408,11 @@ function renderTree(tree) {
 }
 
 $('new').onclick = () => { voice('the dream is forming…'); liveQ = []; ghostQ = [];
+  mission = null; document.body.classList.remove('holding'); missionBanner('');
   anchors = []; currentAnchor = null; send({ type: 'new', image: '0003.png', seed: Date.now() % 100000 }); };
+$('mission').onclick = () => { voice('the dream is forming… and it will be tested.');
+  liveQ = []; ghostQ = []; anchors = []; currentAnchor = null;
+  send({ type: 'mission', image: '0003.png', seed: Date.now() % 100000 }); };
 $('anchor').onclick = () => send({ type: 'anchor', label: '' });
 $('duel').onclick = () => currentAnchor && send({ type: 'duel', anchor_id: currentAnchor });
 $('bfly').onclick = () => currentAnchor && send({ type: 'butterfly', anchor_id: currentAnchor });
