@@ -61,7 +61,11 @@ the pixel window; in Duel, mimicking your ghost's inputs scores ≈ 0 by constru
 
 ## Play
 
-You need one NVIDIA GPU (≥ 24 GB), Python ≥ 3.10, PyTorch ≥ 2.5 with CUDA, and ~30 GB disk.
+**Hosted**: the game server is live at
+[huggingface.co/spaces/Recharge23/butterfly](https://huggingface.co/spaces/Recharge23/butterfly)
+(one-seat queue + live spectators) — in landing mode while a GPU grant is pending.
+
+**Locally**: you need one NVIDIA GPU (≥ 24 GB), Python ≥ 3.10, PyTorch ≥ 2.5 with CUDA, and ~30 GB disk.
 
 ```bash
 git clone https://github.com/lixuan27/butterfly && cd butterfly
